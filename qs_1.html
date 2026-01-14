@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <title>Tracer votre perception dans le temps</title>
 
+<!-- Ajoutés : JSZip + FileSaver pour zipper et télécharger en un seul fichier -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
 <style>
   html, body {
     margin: 0;
@@ -87,7 +91,7 @@ const resetBtn = document.getElementById('reset');
 const nPoints = 10;
 
 // Numéro du tracé (à modifier pour chaque lien LimeSurvey)
-const traceNumber = 1; // <-- Ici pour le premier lien, mettre 1. Pour les suivants, 2, 3, etc.
+const qsNumber = 1; // <-- Ici pour le premier lien, mettre 1. Pour les suivants, 2, 3, etc.
 
 // === Canvas ===
 function resizeCanvas() {
@@ -222,7 +226,8 @@ resetBtn.addEventListener('click', ()=>{
 });
 
 /* === Enregistrement CSV + PNG avec horodatage et numéro de tracé === */
-saveBtn.addEventListener('click', ()=>{
+/* Modification : on zippe CSV + PNG en un seul fichier (nécessite JSZip + FileSaver inclus ci-dessus) */
+saveBtn.addEventListener('click', async ()=>{
   // Horodatage
   const now = new Date();
   const yyyy = now.getFullYear();
@@ -248,18 +253,22 @@ saveBtn.addEventListener('click', ()=>{
   let csv=';T1;T2;T3;T4;T5;T6;T7;T8;T9;T10\n';
   csv +='participant;' + scores.join(';') + '\n';
   const csvBlob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-  const csvURL = URL.createObjectURL(csvBlob);
-  const csvLink = document.createElement('a');
-  csvLink.href = csvURL;
-  csvLink.download = `qs_${traceNumber}_${timestamp}.csv`;
-  csvLink.click();
 
-  // --- PNG ---
-  const imgURL = canvas.toDataURL('image/png');
-  const imgLink = document.createElement('a');
-  imgLink.href = imgURL;
-  imgLink.download = `trace_${traceNumber}_${timestamp}.png`;
-  imgLink.click();
+  // --- récupère le PNG du canvas en Blob ---
+  const canvasBlob = await new Promise(resolve => {
+    canvas.toBlob(blob => resolve(blob), 'image/png');
+  });
+
+  // --- crée le zip contenant CSV + PNG et déclenche un unique téléchargement ---
+  const zip = new JSZip();
+  const csvName = `qs_${qsNumber}_${timestamp}.csv`;
+  const imgName = `qs_${qsNumber}_${timestamp}.png`;
+  zip.file(csvName, csvBlob);
+  zip.file(imgName, canvasBlob);
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const zipName = `export_qs${qsNumber}_${timestamp}.zip`;
+  saveAs(zipBlob, zipName);
 
   // window.location.href = 'https://TON_LIMESURVEY';
 });
