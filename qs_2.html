@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Tracer votre perception dans le temps</title>
+
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    font-family: Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .graph-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+  }
+
+  h2 {
+    text-align: center;
+    margin: 0;
+  }
+
+  #info {
+    text-align: center;
+    font-size: 18px;
+    color: #000000;
+  }
+
+  #canvas {
+    background-color: white;
+    touch-action: none;
+    border: 1px solid #ccc;
+  }
+
+  .buttons {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+  }
+
+  button {
+    padding: 14px 20px;
+    background-color: lightblue;
+    color: black;
+    font-size: 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
+
+  button:hover:not(:disabled) {
+    background-color: deepskyblue;
+  }
+</style>
+</head>
+
+<body>
+
+<div class="graph-container">
+  <h2>Retracer (question 2...) dans le temps </h2>
+  <div id="info">Veuillez tracer une seule courbe, puis valider.</div>
+  <canvas id="canvas"></canvas>
+  <div class="buttons">
+    <button id="reset">Refaire le tracé</button>
+    <button id="save" disabled>Valider et enregistrer</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const info = document.getElementById('info');
+const saveBtn = document.getElementById('save');
+const resetBtn = document.getElementById('reset');
+
+const nPoints = 10;
+
+// Numéro du tracé (à modifier pour chaque lien LimeSurvey)
+const traceNumber = 2; // <-- Ici pour le premier lien, mettre 1. Pour les suivants, 2, 3, etc.
+
+// === Canvas ===
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.min(window.innerWidth*0.7, 800);
+  const height = Math.min(window.innerHeight*0.7, 500);
+  canvas.style.width = width + "px";
+  canvas.style.height = height + "px";
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.scale(dpr,dpr);
+  drawGrid();
+}
+window.addEventListener('resize', resizeCanvas);
+
+let xStart, xEnd, yStart, yEnd, intervalWidth;
+
+function drawGrid() {
+  const width = parseFloat(canvas.style.width);
+  const height = parseFloat(canvas.style.height);
+
+  xStart = width * 0.08;
+  xEnd = width * 0.95;
+  yStart = height * 0.05;
+  yEnd = height * 0.85;
+  intervalWidth = (xEnd - xStart)/nPoints;
+
+  ctx.clearRect(0,0,width,height);
+  const stepY = (yEnd-yStart)/5;
+
+  // quadrillage
+  ctx.strokeStyle='#f0f0f0';
+  ctx.lineWidth=1;
+  for(let i=0;i<=5;i++){
+    const y = yEnd - i*stepY;
+    ctx.beginPath();
+    ctx.moveTo(xStart,y);
+    ctx.lineTo(xEnd,y);
+    ctx.stroke();
+  }
+  for(let i=0;i<=nPoints;i++){
+    const x = xStart + i*intervalWidth;
+    ctx.beginPath();
+    ctx.moveTo(x,yStart);
+    ctx.lineTo(x,yEnd);
+    ctx.stroke();
+  }
+
+  // axes
+  ctx.strokeStyle='black';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(xStart,yEnd);
+  ctx.lineTo(xEnd,yEnd);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(xStart,yEnd);
+  ctx.lineTo(xStart,yStart);
+  ctx.stroke();
+
+  // flèches
+  ctx.fillStyle='black';
+  ctx.beginPath();
+  ctx.moveTo(xEnd,yEnd);
+  ctx.lineTo(xEnd-10,yEnd-5);
+  ctx.lineTo(xEnd-10,yEnd+5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(xStart,yStart);
+  ctx.lineTo(xStart-5,yStart+10);
+  ctx.lineTo(xStart+5,yStart+10);
+  ctx.closePath();
+  ctx.fill();
+
+  // labels
+  ctx.font='16px Arial';
+  ctx.fillText('Temps', xEnd-60, yEnd+30);
+  ctx.save();
+  ctx.translate(20,height/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText('Intensité',0,0);
+  ctx.restore();
+
+  // graduations Y
+  ctx.font='14px Arial';
+  for(let i=0;i<=5;i++){
+    const y = yEnd - i*stepY;
+    ctx.fillText(i.toString(), 25, y+5);
+  }
+}
+
+resizeCanvas();
+
+// === Tracé ===
+let drawing=false;
+let points=[];
+
+canvas.addEventListener('pointerdown', e=>{
+  drawing=true;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  points.push({x,y});
+  ctx.beginPath();
+  ctx.moveTo(x,y);
+  saveBtn.disabled=false;
+  info.textContent='Vous pouvez modifier votre tracé ou valider.';
+});
+
+canvas.addEventListener('pointermove', e=>{
+  if(!drawing) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  points.push({x,y});
+  ctx.strokeStyle='red';
+  ctx.lineWidth=2;
+  ctx.lineTo(x,y);
+  ctx.stroke();
+});
+
+canvas.addEventListener('pointerup', ()=>{drawing=false;});
+
+/* === Refaire === */
+resetBtn.addEventListener('click', ()=>{
+  points=[];
+  drawGrid();
+  saveBtn.disabled=true;
+  info.textContent='Veuillez tracer au moins une courbe avant de valider.';
+});
+
+/* === Enregistrement CSV + PNG avec horodatage et numéro de tracé === */
+saveBtn.addEventListener('click', ()=>{
+  // Horodatage
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth()+1).padStart(2,'0');
+  const dd = String(now.getDate()).padStart(2,'0');
+  const hh = String(now.getHours()).padStart(2,'0');
+  const min = String(now.getMinutes()).padStart(2,'0');
+  const ss = String(now.getSeconds()).padStart(2,'0');
+  const timestamp = `${yyyy}${mm}${dd}_${hh}${min}${ss}`;
+
+  // --- CSV ---
+  let scores=[];
+  for(let i=0;i<nPoints;i++){
+    const xmin = xStart + i*intervalWidth;
+    const xmax = xmin + intervalWidth;
+    const pts = points.filter(p=>p.x>=xmin && p.x<xmax);
+    if(pts.length>0){
+      const yMean = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+      const val = 5 - (yMean-yStart)/(yEnd-yStart)*5;
+      scores.push(val.toFixed(2));
+    } else {scores.push('NA');}
+  }
+  let csv=';T1;T2;T3;T4;T5;T6;T7;T8;T9;T10\n';
+  csv +='participant;' + scores.join(';') + '\n';
+  const csvBlob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const csvURL = URL.createObjectURL(csvBlob);
+  const csvLink = document.createElement('a');
+  csvLink.href = csvURL;
+  csvLink.download = `qs_${traceNumber}_${timestamp}.csv`;
+  csvLink.click();
+
+  // --- PNG ---
+  const imgURL = canvas.toDataURL('image/png');
+  const imgLink = document.createElement('a');
+  imgLink.href = imgURL;
+  imgLink.download = `trace_${traceNumber}_${timestamp}.png`;
+  imgLink.click();
+
+  // window.location.href = 'https://TON_LIMESURVEY';
+});
+</script>
+
+</body>
+</html>
