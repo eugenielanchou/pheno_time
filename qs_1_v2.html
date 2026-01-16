@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Tracer votre perception dans le temps</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<style>
+html, body {
+  margin: 0; height: 100%; font-family: Arial, sans-serif;
+  display: flex; justify-content: center; align-items: center;
+}
+.graph-container {
+  display: flex; flex-direction: column; align-items: center; gap: 15px;
+}
+#info { font-size: 18px; text-align: center; max-width: 720px; }
+#canvas { background: white; border: 1px solid #ccc; touch-action: none; }
+.buttons { display: flex; gap: 20px; }
+button {
+  padding: 14px 20px; background-color: rgb(137,210,235);
+  font-size: 16px; border: none; border-radius: 6px; cursor: pointer;
+}
+button:disabled { background-color: #ccc; cursor: not-allowed; }
+input { font-size: 18px; padding: 10px; text-align: center; width: 160px; }
+</style>
+</head>
+<body>
+
+<!-- ===== INTRO PARTICIPANT ===== -->
+<div id="intro" class="graph-container">
+  <h2>Identification du participant</h2>
+  <div style="font-size:18px; text-align:center; max-width:600px; line-height:1.6; margin-bottom:15px;">
+    Veuillez entrer votre numéro de participant (ex. : S001)
+  </div>
+  <input id="participantInput" type="text" placeholder="S001"><br>
+  <button id="startBtn"><b>Commencer</b></button>
+</div>
+
+<!-- ===== TÂCHE ===== -->
+<div id="task" class="graph-container" style="display:none;">
+  <h2>Estimez (question1) dans le temps</h2>
+  <div id="info"></div>
+  <canvas id="canvas"></canvas>
+  <div class="buttons">
+    <button id="reset">Recommencer</button>
+    <button id="save" disabled>Valider</button>
+  </div>
+</div>
+
+<script>
+/* ================= CONSTANTES ================= */
+const CONSIGNE_HTML =
+  'Veuillez tracer <b>une seule courbe</b> allant du <b>début jusqu\'à la fin</b> de l’intervalle de temps.';
+const FEEDBACK_INCOMPLET_DEBUT_HTML =
+  'Veuillez commencer au <b><u>début</u></b> de l’intervalle de temps.';
+const FEEDBACK_INCOMPLET_DEBUT_PUIS_OK_HTML =
+  'Merci ! Maintenant, continuez jusqu’à la fin de l’intervalle.';
+const FEEDBACK_INCOMPLET_FIN_HTML =
+  'Veuillez tracer jusqu’à la <b><u>fin</u></b> de l’intervalle de temps.';
+const FEEDBACK_FIN_HTML =
+  'Merci ! Vous pouvez <b>valider</b> ou <b>recommencer</b>.';
+
+const nPoints = 10;
+const qsNumber = 1;
+const tolerance = 5; // tolérance début/fin
+
+/* ================= DOM ================= */
+const introDiv = document.getElementById('intro');
+const taskDiv = document.getElementById('task');
+const participantInput = document.getElementById('participantInput');
+const startBtn = document.getElementById('startBtn');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const info = document.getElementById('info');
+const saveBtn = document.getElementById('save');
+const resetBtn = document.getElementById('reset');
+
+/* ================= ÉTAT ================= */
+let participantID = null;
+let xStart, xEnd, yStart, yEnd, intervalWidth;
+let drawing = false;
+let points = [];
+let maxXReached = null;
+let startedCorrectly = false;
+let wasIncorrectStart = false;
+
+/* ================= UTILITAIRES ================= */
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+function yToScore(y) {
+  const ratio = (yEnd - y) / (yEnd - yStart);
+  return (ratio*5).toFixed(2);
+}
+
+/* ================= INTRO ================= */
+startBtn.addEventListener('click', () => {
+  const value = participantInput.value.trim();
+  if (!value) { alert('Veuillez entrer un numéro de participant.'); return; }
+  participantID = value;
+  introDiv.style.display = 'none';
+  taskDiv.style.display = 'flex';
+  info.innerHTML = CONSIGNE_HTML;
+  info.style.color = 'black';
+  resizeCanvas();
+});
+
+/* ================= CANVAS ================= */
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const width = Math.min(window.innerWidth*0.75, 900);
+  const height = Math.min(window.innerHeight*0.65, 500);
+  canvas.style.width = width+'px';
+  canvas.style.height = height+'px';
+  canvas.width = width*dpr;
+  canvas.height = height*dpr;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.scale(dpr,dpr);
+  drawGrid();
+  drawSmoothCurve(points);
+}
+window.addEventListener('resize', resizeCanvas);
+
+function drawGrid() {
+  const w = parseFloat(canvas.style.width);
+  const h = parseFloat(canvas.style.height);
+  xStart = w*0.08; xEnd = w*0.95; yStart = h*0.05; yEnd = h*0.85;
+  intervalWidth = (xEnd - xStart)/nPoints;
+  ctx.clearRect(0,0,w,h);
+  const stepY = (yEnd-yStart)/5;
+  ctx.strokeStyle='#eee'; ctx.lineWidth=1;
+  for(let i=0;i<=5;i++){ const y = yEnd - i*stepY; ctx.beginPath(); ctx.moveTo(xStart,y); ctx.lineTo(xEnd,y); ctx.stroke();}
+  for(let i=0;i<=nPoints;i++){ const x = xStart + i*intervalWidth; ctx.beginPath(); ctx.moveTo(x,yStart); ctx.lineTo(x,yEnd); ctx.stroke();}
+  ctx.strokeStyle='black'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(xStart,yEnd); ctx.lineTo(xEnd,yEnd); ctx.moveTo(xStart,yEnd); ctx.lineTo(xStart,yStart); ctx.stroke();
+  // flèches
+  ctx.beginPath(); ctx.moveTo(xEnd,yEnd); ctx.lineTo(xEnd-10,yEnd-5); ctx.lineTo(xEnd-10,yEnd+5); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(xStart,yStart); ctx.lineTo(xStart-5,yStart+10); ctx.lineTo(xStart+5,yStart+10); ctx.closePath(); ctx.fill();
+  ctx.font='18px Arial'; ctx.fillText('Temps', xEnd-60, yEnd+35);
+  ctx.save(); ctx.translate(22,h/2); ctx.rotate(-Math.PI/2); ctx.fillText('Intensité',0,0); ctx.restore();
+  ctx.font='14px Arial'; for(let i=0;i<=5;i++){ const y = yEnd - i*stepY; ctx.fillText(i.toString(),25,y+5);}
+}
+
+/* ================= COURBE ================= */
+function drawSmoothCurve(pts){
+  if(pts.length<2) return;
+  ctx.strokeStyle='rgb(0,144,192)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+  for(let i=1;i<pts.length-1;i++){
+    const xc=(pts[i].x+pts[i+1].x)/2; const yc=(pts[i].y+pts[i+1].y)/2;
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+  } ctx.stroke();
+}
+
+/* ================= INTERACTIONS ================= */
+canvas.addEventListener('pointerdown', e=>{ drawing=true; canvas.setPointerCapture(e.pointerId); });
+
+canvas.addEventListener('pointermove', e=>{
+  if(!drawing) return;
+  const r = canvas.getBoundingClientRect();
+  const x = clamp(e.clientX - r.left, xStart, xEnd);
+  const y = clamp(e.clientY - r.top, yStart, yEnd);
+
+  // vérifier début
+  if(!startedCorrectly && points.length===0){
+    if(x > xStart + tolerance){
+      info.innerHTML = FEEDBACK_INCOMPLET_DEBUT_HTML;
+      info.style.color='crimson';
+      wasIncorrectStart = true;
+      return; // ne pas tracer
+    } else {
+      startedCorrectly = true;
+      if(wasIncorrectStart){
+        info.innerHTML = FEEDBACK_INCOMPLET_DEBUT_PUIS_OK_HTML;
+        info.style.color='black';
+      } else {
+        // tout bien du premier coup, garder la consigne
+        info.innerHTML = CONSIGNE_HTML;
+        info.style.color='black';
+      }
+    }
+  }
+
+  if(maxXReached!==null && x<maxXReached) return;
+  maxXReached=x; points.push({x,y});
+  drawGrid(); drawSmoothCurve(points);
+
+  // fin
+  if(x >= xEnd - tolerance){
+    saveBtn.disabled=false;
+    info.innerHTML = FEEDBACK_FIN_HTML;
+    info.style.color='black';
+  }
+});
+
+canvas.addEventListener('pointerup', e=>{
+  drawing=false; canvas.releasePointerCapture(e.pointerId);
+  if(startedCorrectly && maxXReached < xEnd - tolerance){
+    info.innerHTML = FEEDBACK_INCOMPLET_FIN_HTML;
+    info.style.color='crimson';
+  }
+});
+
+/* ================= RESET ================= */
+resetBtn.addEventListener('click', ()=>{
+  points=[]; maxXReached=null; startedCorrectly=false; wasIncorrectStart=false;
+  saveBtn.disabled=true; info.innerHTML=CONSIGNE_HTML; info.style.color='black';
+  drawGrid();
+});
+
+/* ================= EXPORT ================= */
+saveBtn.addEventListener('click', async ()=>{
+  const ts = new Date().toISOString().replace(/[-:]/g,'').slice(0,15);
+  let scores=[];
+  for(let i=0;i<nPoints;i++){
+    const xmin=xStart+i*intervalWidth; const xmax=xmin+intervalWidth;
+    const pts=points.filter(p=>p.x>=xmin && p.x<xmax);
+    if(pts.length){ const yMean=pts.reduce((s,p)=>s+p.y,0)/pts.length; scores.push(yToScore(yMean)); }
+    else scores.push('NA');
+  }
+  let header = ';';
+  for (let i = 1; i <= nPoints; i++) {
+    header += 'T' + i;
+    if (i < nPoints) header += ';';
+  }
+  header += '\n';
+  let csv = header;
+  csv += participantID+';'+scores.join(';')+'\n';
+  const csvBlob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const canvasBlob = await new Promise(res=>canvas.toBlob(res));
+  const zip = new JSZip();
+  zip.file(`qs_${qsNumber}_${participantID}_${ts}.csv`, csvBlob);
+  zip.file(`qs_${qsNumber}_${participantID}_${ts}.png`, canvasBlob);
+  const zipBlob = await zip.generateAsync({type:'blob'});
+  saveAs(zipBlob, `export_qs${qsNumber}_${participantID}_${ts}.zip`);
+  info.innerHTML='Merci ! Vos réponses ont été enregistrées.'; saveBtn.disabled=true;
+
+    // Bloquer toute modification après validation
+  resetBtn.disabled = true;
+  canvas.style.pointerEvents = 'none'; // empêche tout nouveau tracé
+});
+
+</script>
+</body>
+</html>
